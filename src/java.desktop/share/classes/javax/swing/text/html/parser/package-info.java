@@ -28,10 +28,9 @@
  * is parsed, the parser notifies a delegate, which must implement the
  * {@code HTMLEditorKit.ParserCallback} interface.
  * <p>
- * DTDBuilder reference
- * <p>
- * Snippet
- * <p>
+ * Javax Swing Html Parser is a driven DTD-HTML parser. If you want to alter our
+ * DTD used with HTML classes you had to use DTDBuilder, a program to read a DTD
+ * and produce a compressed representation of it.
  * <strong>Note:</strong>
  * Most of the Swing API is <em>not</em> thread safe. For details, see
  * <a
