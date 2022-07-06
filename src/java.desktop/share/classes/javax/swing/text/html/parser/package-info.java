@@ -31,6 +31,7 @@
  * Javax Swing Html Parser is a driven DTD-HTML parser. If you want to alter our
  * DTD used with HTML classes you had to use DTDBuilder, a program to read a DTD
  * and produce a compressed representation of it.
+ * <p>
  * <strong>Note:</strong>
  * Most of the Swing API is <em>not</em> thread safe. For details, see
  * <a
