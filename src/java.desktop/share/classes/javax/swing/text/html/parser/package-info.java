@@ -28,6 +28,10 @@
  * is parsed, the parser notifies a delegate, which must implement the
  * {@code HTMLEditorKit.ParserCallback} interface.
  * <p>
+ * DTDBuilder reference
+ * <p>
+ * Snippet
+ * <p>
  * <strong>Note:</strong>
  * Most of the Swing API is <em>not</em> thread safe. For details, see
  * <a
