@@ -43,12 +43,16 @@ public class RGBandRGBAalignmentBehaviours {
         StyleSheet styleSheet = new StyleSheet();
 
         for(String[] rgb : listRGBandRGBA) {
-            Object color = styleSheet.stringToColor(rgb[0]);
-            String cols = color instanceof Color col ? "\n    " + rgb[0] + " hex =" + Integer.toHexString(col.getRGB()) : null;
-
-            if (color instanceof Color col && !rgb[1].equals(Integer.toHexString(col.getRGB()))) {
+            try {
+                Object color = styleSheet.stringToColor(rgb[0]);
+                String cols = color instanceof Color col ? "\n    " + rgb[0] + " hex =" + Integer.toHexString(col.getRGB()) : null;
+                if (color instanceof Color col && !rgb[1].equals(Integer.toHexString(col.getRGB()))) {
+                    passed = false;
+                    result.append("\n    Fails to parse : " + rgb[0] + " -> " + rgb[1] + " " + Integer.toHexString(col.getRGB()));
+                }
+            } catch (IllegalArgumentException iae) {
                 passed = false;
-                result.append("\n    Fails to parse : " + rgb[0] + " -> " + rgb[1] + " " + Integer.toHexString(col.getRGB()));
+                result.append("\n    Fails to parse : " + rgb[0] + " -> " + rgb[1] + " " + iae);
             }
         }
 
