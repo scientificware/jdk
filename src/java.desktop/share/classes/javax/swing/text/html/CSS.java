@@ -1390,8 +1390,8 @@ public class CSS implements Serializable {
         //   - 6 digits #[RR][GG][BB] ..... represents #[RR][GG][BB]FF
         //   - 8 digits #[RR][GG][BB][AA] . represents #[RR][GG][BB][AA]
         final byte[] iseq = digits.startsWith("#") ?
-                                 iseqmap.get(Integer.valueOf(digits.length())):
-                                 iseqmap.get(Integer.valueOf(-digits.length()));
+                                 iseqmap.get(digits.length()):
+                                 iseqmap.get(-digits.length());
         if (iseq == null) {
             // Rejects string argument with a wrong number length.
             return null;
