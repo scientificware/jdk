@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2025, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2026, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,12 +22,14 @@
  *
  */
 
+#include "code/aotCodeCache.hpp"
 #include "code/codeBlob.hpp"
 #include "code/codeCache.hpp"
 #include "code/relocInfo.hpp"
 #include "code/vtableStubs.hpp"
 #include "compiler/disassembler.hpp"
 #include "compiler/oopMap.hpp"
+#include "cppstdlib/type_traits.hpp"
 #include "interpreter/bytecode.hpp"
 #include "interpreter/interpreter.hpp"
 #include "jvm.h"
@@ -52,8 +54,6 @@
 #ifdef COMPILER1
 #include "c1/c1_Runtime1.hpp"
 #endif
-
-#include <type_traits>
 
 // Virtual methods are not allowed in code blobs to simplify caching compiled code.
 // Check all "leaf" subclasses of CodeBlob class.
@@ -189,22 +189,6 @@ CodeBlob::CodeBlob(const char* name, CodeBlobKind kind, int size, uint16_t heade
   assert(_mutable_data == blob_end(), "sanity");
 }
 
-void CodeBlob::restore_mutable_data(address reloc_data) {
-  // Relocation data is now stored as part of the mutable data area; allocate it before copy relocations
-  if (_mutable_data_size > 0) {
-    _mutable_data = (address)os::malloc(_mutable_data_size, mtCode);
-    if (_mutable_data == nullptr) {
-      vm_exit_out_of_memory(_mutable_data_size, OOM_MALLOC_ERROR, "codebuffer: no space for mutable data");
-    }
-  } else {
-    _mutable_data = blob_end(); // default value
-  }
-  if (_relocation_size > 0) {
-    assert(_mutable_data_size > 0, "relocation is part of mutable data section");
-    memcpy((address)relocation_begin(), reloc_data, relocation_size());
-  }
-}
-
 void CodeBlob::purge() {
   assert(_mutable_data != nullptr, "should never be null");
   if (_mutable_data != blob_end()) {
@@ -241,6 +225,23 @@ void CodeBlob::print_code_on(outputStream* st) {
   Disassembler::decode(this, st);
 }
 
+#if INCLUDE_CDS
+void CodeBlob::restore_mutable_data(address reloc_data) {
+  // Relocation data is now stored as part of the mutable data area; allocate it before copy relocations
+  if (_mutable_data_size > 0) {
+    _mutable_data = (address)os::malloc(_mutable_data_size, mtCode);
+    if (_mutable_data == nullptr) {
+      vm_exit_out_of_memory(_mutable_data_size, OOM_MALLOC_ERROR, "codebuffer: no space for mutable data");
+    }
+  } else {
+    _mutable_data = blob_end(); // default value
+  }
+  if (_relocation_size > 0) {
+    assert(_mutable_data_size > 0, "relocation is part of mutable data section");
+    memcpy((address)relocation_begin(), reloc_data, relocation_size());
+  }
+}
+
 void CodeBlob::prepare_for_archiving_impl() {
   set_name(nullptr);
   _oop_maps = nullptr;
@@ -270,24 +271,15 @@ void CodeBlob::post_restore() {
   vptr(_kind)->post_restore(this);
 }
 
-CodeBlob* CodeBlob::restore(address code_cache_buffer,
-                            const char* name,
-                            address archived_reloc_data,
-                            ImmutableOopMapSet* archived_oop_maps)
+CodeBlob* CodeBlob::restore(address code_cache_buffer, AOTCodeReader* reader)
 {
   copy_to(code_cache_buffer);
   CodeBlob* code_blob = (CodeBlob*)code_cache_buffer;
-  code_blob->set_name(name);
-  code_blob->restore_mutable_data(archived_reloc_data);
-  code_blob->set_oop_maps(archived_oop_maps);
+  reader->restore(code_blob);
   return code_blob;
 }
 
-CodeBlob* CodeBlob::create(CodeBlob* archived_blob,
-                           const char* name,
-                           address archived_reloc_data,
-                           ImmutableOopMapSet* archived_oop_maps
-                          )
+CodeBlob* CodeBlob::create(CodeBlob* archived_blob, AOTCodeReader* reader)
 {
   ThreadInVMfromUnknown __tiv;  // get to VM state in case we block on CodeCache_lock
 
@@ -299,10 +291,7 @@ CodeBlob* CodeBlob::create(CodeBlob* archived_blob,
     MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
     address code_cache_buffer = (address)CodeCache::allocate(size, CodeBlobType::NonNMethod);
     if (code_cache_buffer != nullptr) {
-      blob = archived_blob->restore(code_cache_buffer,
-                                    name,
-                                    archived_reloc_data,
-                                    archived_oop_maps);
+      blob = archived_blob->restore(code_cache_buffer, reader);
       assert(blob != nullptr, "sanity check");
 
       // Flush the code block
@@ -315,6 +304,8 @@ CodeBlob* CodeBlob::create(CodeBlob* archived_blob,
   }
   return blob;
 }
+
+#endif // INCLUDE_CDS
 
 //-----------------------------------------------------------------------------------------
 // Creates a RuntimeBlob from a CodeBuffer and copy code and relocation info.
@@ -337,6 +328,7 @@ RuntimeBlob::RuntimeBlob(
 
 void RuntimeBlob::free(RuntimeBlob* blob) {
   assert(blob != nullptr, "caller must check for nullptr");
+  MACOS_AARCH64_ONLY(os::thread_wx_enable_write());
   ThreadInVMfromUnknown __tiv;  // get to VM state in case we block on CodeCache_lock
   blob->purge();
   {
@@ -448,16 +440,19 @@ void BufferBlob::free(BufferBlob *blob) {
 
 AdapterBlob::AdapterBlob(int size, CodeBuffer* cb, int entry_offset[AdapterBlob::ENTRY_COUNT]) :
   BufferBlob("I2C/C2I adapters", CodeBlobKind::Adapter, cb, size, sizeof(AdapterBlob)) {
-  assert(entry_offset[0] == 0, "sanity check");
+  assert(entry_offset[I2C] == 0, "sanity check");
+#ifdef ASSERT
   for (int i = 1; i < AdapterBlob::ENTRY_COUNT; i++) {
     // The entry is within the adapter blob or unset.
-    assert((entry_offset[i] > 0 && entry_offset[i] < cb->insts()->size()) ||
-           (entry_offset[i] == -1),
-           "invalid entry offset[%d] = 0x%x", i, entry_offset[i]);
+    int offset = entry_offset[i];
+    assert((offset > 0 && offset < cb->insts()->size()) ||
+           (i >= C2I_No_Clinit_Check && offset == -1),
+           "invalid entry offset[%d] = 0x%x", i, offset);
   }
-  _c2i_offset = entry_offset[1];
-  _c2i_unverified_offset = entry_offset[2];
-  _c2i_no_clinit_check_offset = entry_offset[3];
+#endif // ASSERT
+  _c2i_offset = entry_offset[C2I];
+  _c2i_unverified_offset = entry_offset[C2I_Unverified];
+  _c2i_no_clinit_check_offset = entry_offset[C2I_No_Clinit_Check];
   CodeCache::commit(this);
 }
 
@@ -476,13 +471,6 @@ AdapterBlob* AdapterBlob::create(CodeBuffer* cb, int entry_offset[AdapterBlob::E
   MemoryService::track_code_cache_memory_usage();
 
   return blob;
-}
-
-void AdapterBlob::get_offsets(int entry_offset[ENTRY_COUNT]) {
-  entry_offset[0] = 0;
-  entry_offset[1] = _c2i_offset;
-  entry_offset[2] = _c2i_unverified_offset;
-  entry_offset[3] = _c2i_no_clinit_check_offset;
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -525,6 +513,8 @@ VtableBlob* VtableBlob::create(const char* name, int buffer_size) {
       // eventually.
       return nullptr;
     }
+
+    MACOS_AARCH64_ONLY(os::thread_wx_enable_write());
     blob = new (size) VtableBlob(name, size);
     CodeCache_lock->unlock();
   }
@@ -875,9 +865,10 @@ void CodeBlob::dump_for_addr(address addr, outputStream* st, bool verbose) const
       return;
     }
     //
-    if (AdapterHandlerLibrary::contains(this)) {
+    if (is_adapter_blob()) {
       st->print_cr(INTPTR_FORMAT " is at code_begin+%d in an AdapterHandler", p2i(addr), (int)(addr - code_begin()));
       AdapterHandlerLibrary::print_handler_on(st, this);
+      return;
     }
     // the stubroutines are generated into a buffer blob
     StubCodeDesc* d = StubCodeDesc::desc_for(addr);
@@ -914,6 +905,7 @@ void CodeBlob::dump_for_addr(address addr, outputStream* st, bool verbose) const
       nm->print_nmethod(true);
     } else {
       nm->print_on(st);
+      nm->print_code_snippet(st, addr);
     }
     return;
   }

@@ -34,6 +34,7 @@
 #include "utilities/align.hpp"
 #include "utilities/macros.hpp"
 
+class AOTCodeReader;
 class ImmutableOopMap;
 class ImmutableOopMapSet;
 class JNIHandleBlock;
@@ -107,9 +108,6 @@ class CodeBlob {
   friend class VMStructs;
   friend class JVMCIVMStructs;
 
-private:
-  void restore_mutable_data(address reloc_data);
-
 protected:
   // order fields from large to small to minimize padding between fields
   ImmutableOopMapSet* _oop_maps;   // OopMap for this CodeBlob
@@ -169,8 +167,8 @@ protected:
 
   void operator delete(void* p) { }
 
-  void prepare_for_archiving_impl();
-  void post_restore_impl();
+  void prepare_for_archiving_impl() NOT_CDS_RETURN;
+  void post_restore_impl() NOT_CDS_RETURN;
 
 public:
 
@@ -304,6 +302,9 @@ public:
   void use_strings(DbgStrings &strings) { _dbg_strings.share(strings); }
 #endif
 
+#if INCLUDE_CDS
+  void restore_mutable_data(address reloc_data);
+
   void copy_to(address buffer) {
     memcpy(buffer, this, this->size());
   }
@@ -314,18 +315,15 @@ public:
 
   // methods to restore a blob from AOT code cache into the CodeCache
   void post_restore();
-  CodeBlob* restore(address code_cache_buffer, const char* name, address archived_reloc_data, ImmutableOopMapSet* archived_oop_maps);
-  static CodeBlob* create(CodeBlob* archived_blob,
-                          const char* name,
-                          address archived_reloc_data,
-                          ImmutableOopMapSet* archived_oop_maps);
+  CodeBlob* restore(address code_cache_buffer, AOTCodeReader* reader);
+  static CodeBlob* create(CodeBlob* archived_blob, AOTCodeReader* reader);
+#endif
 };
 
 //----------------------------------------------------------------------------------------------------
 // RuntimeBlob: used for non-compiled method code (adapters, stubs, blobs)
 
 class RuntimeBlob : public CodeBlob {
-  friend class VMStructs;
  public:
 
   // Creation
@@ -405,7 +403,13 @@ class BufferBlob: public RuntimeBlob {
 
 class AdapterBlob: public BufferBlob {
 public:
-  static const int ENTRY_COUNT = 4;
+  enum Entry {
+    I2C,
+    C2I,
+    C2I_Unverified,
+    C2I_No_Clinit_Check,
+    ENTRY_COUNT
+  };
 private:
   AdapterBlob(int size, CodeBuffer* cb, int entry_offset[ENTRY_COUNT]);
   // _i2c_offset is always 0 so no need to store it
@@ -415,7 +419,10 @@ private:
 public:
   // Creation
   static AdapterBlob* create(CodeBuffer* cb, int entry_offset[ENTRY_COUNT]);
-  void get_offsets(int entry_offset[ENTRY_COUNT]);
+  address i2c_entry() { return code_begin(); }
+  address c2i_entry() { return i2c_entry() + _c2i_offset; }
+  address c2i_unverified_entry() { return i2c_entry() + _c2i_unverified_offset; }
+  address c2i_no_clinit_check_entry() { return _c2i_no_clinit_check_offset == -1 ? nullptr : i2c_entry() + _c2i_no_clinit_check_offset; }
 };
 
 //---------------------------------------------------------------------------------------------------
@@ -625,7 +632,6 @@ class DeoptimizationBlob: public SingletonBlob {
 #ifdef COMPILER2
 
 class UncommonTrapBlob: public SingletonBlob {
-  friend class VMStructs;
  private:
   // Creation support
   UncommonTrapBlob(
@@ -649,7 +655,6 @@ class UncommonTrapBlob: public SingletonBlob {
 // ExceptionBlob: used for exception unwinding in compiled code (currently only used by Compiler 2)
 
 class ExceptionBlob: public SingletonBlob {
-  friend class VMStructs;
  private:
   // Creation support
   ExceptionBlob(
@@ -686,7 +691,6 @@ class ExceptionBlob: public SingletonBlob {
 // SafepointBlob: handles illegal_instruction exceptions during a safepoint
 
 class SafepointBlob: public SingletonBlob {
-  friend class VMStructs;
  private:
   // Creation support
   SafepointBlob(
