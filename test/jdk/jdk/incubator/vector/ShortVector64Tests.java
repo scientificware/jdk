@@ -1104,6 +1104,10 @@ public class ShortVector64Tests extends AbstractVectorTest {
                 return fill(s * BUFFER_REPS,
                             i -> (((short)(i + 1) == 0) ? 1 : (short)(i + 1)));
             }),
+            withToString("short[smallOddValue(i)]", (int s) -> {
+                return fill(s * BUFFER_REPS,
+                            i -> (short)(i % 7 == 0 ? -3 : (i % 3 == 0 ? -1 : 1)));
+            }),
             withToString("short[cornerCaseValue(i)]", (int s) -> {
                 return fill(s * BUFFER_REPS,
                             i -> cornerCaseValue(i));
@@ -1715,9 +1719,14 @@ public class ShortVector64Tests extends AbstractVectorTest {
         assertEquals(asIntegral.species(), SPECIES);
     }
 
-    @Test(expectedExceptions = UnsupportedOperationException.class)
+    @Test
     void viewAsFloatingLanesTest() {
-        SPECIES.zero().viewAsFloatingLanes();
+        Vector<?> asFloating = SPECIES.zero().viewAsFloatingLanes();
+        VectorSpecies<?> asFloatingSpecies = asFloating.species();
+        Assert.assertNotEquals(asFloatingSpecies.elementType(), SPECIES.elementType());
+        assertEquals(asFloatingSpecies.vectorShape(), SPECIES.vectorShape());
+        assertEquals(asFloatingSpecies.length(), SPECIES.length());
+        assertEquals(asFloating.viewAsIntegralLanes().species(), SPECIES);
     }
 
     @Test
@@ -6899,7 +6908,8 @@ public class ShortVector64Tests extends AbstractVectorTest {
             String str = av.toString();
 
             short subarr[] = Arrays.copyOfRange(a, i, i + SPECIES.length());
-            Assert.assertTrue(str.equals(Arrays.toString(subarr)), "at index " + i + ", string should be = " + Arrays.toString(subarr) + ", but is = " + str);
+            String expectedStr = Arrays.toString(subarr);
+            Assert.assertTrue(str.equals(expectedStr), "at index " + i + ", string should be = " + expectedStr + ", but is = " + str);
         }
     }
 

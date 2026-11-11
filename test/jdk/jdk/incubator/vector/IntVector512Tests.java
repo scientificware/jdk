@@ -1104,6 +1104,10 @@ public class IntVector512Tests extends AbstractVectorTest {
                 return fill(s * BUFFER_REPS,
                             i -> (((int)(i + 1) == 0) ? 1 : (int)(i + 1)));
             }),
+            withToString("int[smallOddValue(i)]", (int s) -> {
+                return fill(s * BUFFER_REPS,
+                            i -> (int)(i % 7 == 0 ? -3 : (i % 3 == 0 ? -1 : 1)));
+            }),
             withToString("int[cornerCaseValue(i)]", (int s) -> {
                 return fill(s * BUFFER_REPS,
                             i -> cornerCaseValue(i));
@@ -6952,7 +6956,8 @@ public class IntVector512Tests extends AbstractVectorTest {
             String str = av.toString();
 
             int subarr[] = Arrays.copyOfRange(a, i, i + SPECIES.length());
-            Assert.assertTrue(str.equals(Arrays.toString(subarr)), "at index " + i + ", string should be = " + Arrays.toString(subarr) + ", but is = " + str);
+            String expectedStr = Arrays.toString(subarr);
+            Assert.assertTrue(str.equals(expectedStr), "at index " + i + ", string should be = " + expectedStr + ", but is = " + str);
         }
     }
 

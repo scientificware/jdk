@@ -45,11 +45,28 @@ class outputStream;
 class stringStream;
 enum class vmIntrinsicID;
 
+#define SINGLE_INST_WARNING_MSG " instruction is not available on this CPU"
+#define MULTI_INST_WARNING_MSG " instructions are not available on this CPU"
+
+// Helper macro to test and set VM flag and corresponding cpu feature
+#define CHECK_CPU_FEATURE(vmflag, feature_id, predicate, warning_msg) \
+  if (predicate) { \
+    if (FLAG_IS_DEFAULT(vmflag)) { \
+      FLAG_SET_DEFAULT(vmflag, true); \
+    } else if (!vmflag) { \
+      clear_feature(CPU_##feature_id); \
+    } \
+  } else if (vmflag) { \
+    if (!FLAG_IS_DEFAULT(vmflag)) { \
+      warning(warning_msg); \
+    } \
+    FLAG_SET_DEFAULT(vmflag, false); \
+  }
+
 // Abstract_VM_Version provides information about the VM.
 
 class Abstract_VM_Version: AllStatic {
   friend class VMStructs;
-  friend class JVMCIVMStructs;
 
  protected:
   static const char*  _s_vm_release;
@@ -64,6 +81,8 @@ class Abstract_VM_Version: AllStatic {
 
   // Original CPU feature flags, not affected by VM settings.
   static uint64_t _cpu_features;
+
+  static uint64_t _cpu_features_disabled_by_aot_cache;
 
   // These are set by machine-dependent initializations
 #ifndef SUPPORTS_NATIVE_CX8
@@ -220,6 +239,8 @@ class Abstract_VM_Version: AllStatic {
   static char  _cpu_name[CPU_TYPE_DESC_BUF_SIZE];
   static char  _cpu_desc[CPU_DETAILED_DESC_BUF_SIZE];
 
+  static void* get_aot_cache_cpu_features();
+
  public:
   static int number_of_threads(void);
   static int number_of_cores(void);
@@ -240,8 +261,12 @@ class Abstract_VM_Version: AllStatic {
   // Size of the buffer must be same as returned by cpu_features_size()
   static void store_cpu_features(void* buf) { return; }
 
-  // features_to_test is an opaque object that stores arch specific representation of cpu features
-  static bool supports_features(void* features_to_test) { return false; };
+  // features_buffer is an opaque object that stores arch specific representation of cpu features
+  static bool verify_aot_code_cache_features(void* features_buffer) { return false; };
+
+  static void get_cpu_features_disabled_by_aot_cache(void* features_buffer) { return; }
+
+  static int cpu_features_alignment() { return alignof(decltype(_features)); }
 };
 
 #endif // SHARE_RUNTIME_ABSTRACT_VM_VERSION_HPP
